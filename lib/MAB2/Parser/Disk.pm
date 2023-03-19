@@ -44,11 +44,11 @@ sub next {
     local $/ = $END_OF_RECORD;
     if ( my $data = $self->{reader}->getline() ) {
         $self->{rec_number}++;
-        my $record = _decode($data);
+        my ($record, $items) = _decode($data);
 
         # get last subfield from 001 as id
         my ($id) = map { $_->[-1] } grep { $_->[0] =~ '001' } @{$record};
-        return { _id => $id, record => $record };
+        return { _id => $id, record => $record, items => $items };
     }
     return;
 }
@@ -70,9 +70,11 @@ sub _decode {
         carp "faulty record leader: $leader";
     }
 
+    my $items = [];
+    my $itemcount = 0;  
     foreach my $field (@fields) {
-
-        if ( length $field <= 4 ) {
+        my @r;
+        if ( length $field < 3 ) {
             carp "faulty field: \"$field\"";
             next;
         }
@@ -83,26 +85,34 @@ sub _decode {
             # check if data contains subfield indicators
             if ( $data =~ m/\s*($SUBFIELD_INDICATOR|\$)(.*)/ ) {
                 my $subfield_indicator = $1 eq '$' ? '\$' : $1;
-                push
-                    @record,
+                @r = 
                     [
                     $tag,
                     $ind,
                     map { ( substr( $_, 0, 1 ), substr( $_, 1 ) ) }
                         split /$subfield_indicator/,
-                    $2
+                    $2,
                     ];
             }
             else {
-                push @record, [ $tag, $ind, '_', $data ];
+                @r = [ $tag, $ind, '_', $data];
             }
+            if ($itemcount == 0) {
+                push @record, @r;
+            } else {
+                push @{$items->[$itemcount]}, @r;
+            }
+        
+        } elsif ( $field =~ /^\*\*\*/ ) {
+            $itemcount++;
+            $items->[$itemcount] = [];
         }
         else {
-            carp "faulty field structure: \"$field\"";
+            carp sprintf('faulty field structure: "%s"', $field);
             next;
         }
     }
-    return \@record;
+    return (\@record, $items);
 }
 
 1;    # End of MAB2::Parser::Disk
